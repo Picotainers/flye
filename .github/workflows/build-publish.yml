@@ -1,4 +1,4 @@
-name: Build and Publish Distroless flye
+name: Build and Publish flye
 
 on:
   push:

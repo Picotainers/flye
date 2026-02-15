@@ -1,5 +1,5 @@
 # flye
-Small, distroless-when-possible container for `flye`.
+Small compatibility-focused container for `flye`.
 
 ## how to use
 ```bash
