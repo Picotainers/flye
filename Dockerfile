@@ -1,34 +1,22 @@
 # syntax=docker/dockerfile:1
-# Compatibility-first template for flye.
-# Installs package from Bioconda and copies the full conda runtime to avoid missing libs/interpreters.
 
-FROM mambaorg/micromamba:2.0.5-debian12-slim AS builder
+FROM python:3.12-slim-bookworm
 
-RUN micromamba install -y -n base -c conda-forge -c bioconda \
-    flye \
-    && micromamba clean --all --yes
+ARG FLYE_VERSION=2.9.6
 
-# Resolve a runnable command for this package.
-# Prefer exact match, then underscore variant, then prefix match.
-RUN set -eux; \
-    BIN=""; \
-    if [ -x "/opt/conda/bin/flye" ]; then BIN="/opt/conda/bin/flye"; fi; \
-    if [ -z "$BIN" ]; then CAND="/opt/conda/bin/$(echo flye | tr '-' '_')"; [ -x "$CAND" ] && BIN="$CAND" || true; fi; \
-    if [ -z "$BIN" ]; then BIN="$(find /opt/conda/bin -maxdepth 1 -type f -perm -111 -name 'flye*' | head -n1 || true)"; fi; \
-    test -n "$BIN"; \
-    printf '%s\n' "$BIN" > /tmp/tool-entry-path
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        build-essential \
+        ca-certificates \
+        git \
+        zlib1g-dev \
+    && rm -rf /var/lib/apt/lists/*
 
-FROM mambaorg/micromamba:2.0.5-debian12-slim
+WORKDIR /tmp
+RUN git clone --depth 1 --branch ${FLYE_VERSION} https://github.com/mikolmogorov/Flye.git /tmp/Flye \
+    && pip install --no-cache-dir /tmp/Flye \
+    && rm -rf /tmp/Flye
 
-COPY --from=builder /opt/conda /opt/conda
-COPY --from=builder /tmp/tool-entry-path /tmp/tool-entry-path
-
-USER root
-ENV PATH="/opt/conda/bin:${PATH}"
-ENV LD_LIBRARY_PATH="/opt/conda/lib:/opt/conda/lib64"
-RUN set -eux; \
-    BIN="$(cat /tmp/tool-entry-path)"; \
-    printf '#!/usr/bin/env bash\nexec "%s" "$@"\n' "$BIN" > /usr/local/bin/flye
-RUN chmod +x /usr/local/bin/flye && rm -f /tmp/tool-entry-path
 WORKDIR /data
-ENTRYPOINT ["/usr/local/bin/flye"]
+ENTRYPOINT ["flye"]
+CMD ["--help"]
