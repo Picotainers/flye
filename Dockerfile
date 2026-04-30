@@ -1,34 +1,41 @@
 # syntax=docker/dockerfile:1
-# Compatibility-first template for flye.
-# Installs package from Bioconda and copies the full conda runtime to avoid missing libs/interpreters.
 
-FROM mambaorg/micromamba:2.0.5-debian12-slim AS builder
+FROM debian:bookworm AS builder
+ARG FLYE_VERSION=2.9.6
 
-RUN micromamba install -y -n base -c conda-forge -c bioconda \
-    flye \
-    && micromamba clean --all --yes
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        g++ \
+        git \
+        make \
+        python3 \
+        python3-pip \
+        python3-venv \
+        zlib1g-dev \
+    && rm -rf /var/lib/apt/lists/*
 
-# Resolve a runnable command for this package.
-# Prefer exact match, then underscore variant, then prefix match.
-RUN set -eux; \
-    BIN=""; \
-    if [ -x "/opt/conda/bin/flye" ]; then BIN="/opt/conda/bin/flye"; fi; \
-    if [ -z "$BIN" ]; then CAND="/opt/conda/bin/$(echo flye | tr '-' '_')"; [ -x "$CAND" ] && BIN="$CAND" || true; fi; \
-    if [ -z "$BIN" ]; then BIN="$(find /opt/conda/bin -maxdepth 1 -type f -perm -111 -name 'flye*' | head -n1 || true)"; fi; \
-    test -n "$BIN"; \
-    printf '%s\n' "$BIN" > /tmp/tool-entry-path
+WORKDIR /src
+RUN git clone --depth 1 --branch "${FLYE_VERSION}" https://github.com/mikolmogorov/Flye.git
 
-FROM mambaorg/micromamba:2.0.5-debian12-slim
+WORKDIR /src/Flye
+RUN make \
+    && python3 -m venv /opt/venv \
+    && /opt/venv/bin/pip install --no-cache-dir --upgrade pip setuptools wheel \
+    && /opt/venv/bin/pip install --no-cache-dir .
 
-COPY --from=builder /opt/conda /opt/conda
-COPY --from=builder /tmp/tool-entry-path /tmp/tool-entry-path
+FROM debian:bookworm-slim
 
-USER root
-ENV PATH="/opt/conda/bin:${PATH}"
-ENV LD_LIBRARY_PATH="/opt/conda/lib:/opt/conda/lib64"
-RUN set -eux; \
-    BIN="$(cat /tmp/tool-entry-path)"; \
-    printf '#!/usr/bin/env bash\nexec "%s" "$@"\n' "$BIN" > /usr/local/bin/flye
-RUN chmod +x /usr/local/bin/flye && rm -f /tmp/tool-entry-path
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        python3 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /opt/venv /opt/venv
+
+ENV PATH="/opt/venv/bin:${PATH}"
 WORKDIR /data
-ENTRYPOINT ["/usr/local/bin/flye"]
+
+ENTRYPOINT ["flye"]
+CMD ["--help"]
